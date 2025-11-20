@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🐦💌🦤 미새와 도도의 비밀 우체통</title>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -227,6 +232,24 @@
             font-size: 12px;
             color: #999;
             margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .message-delete-btn {
+            padding: 4px 8px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 16px;
+            opacity: 0.5;
+            transition: all 0.2s;
+        }
+
+        .message-delete-btn:hover {
+            opacity: 1;
+            transform: scale(1.2);
         }
 
         .message-text {
@@ -473,6 +496,22 @@
     </div>
 
     <script>
+        // ============ Firebase 초기화 ============
+        const firebaseConfig = {
+            apiKey: "AIzaSyAR7uduL1JkHflpMMTY4mEmZdtoY0p--I4",
+            authDomain: "misae-dodo-mailbox.firebaseapp.com",
+            projectId: "misae-dodo-mailbox",
+            storageBucket: "misae-dodo-mailbox.firebasestorage.app",
+            messagingSenderId: "93143777718",
+            appId: "1:93143777718:web:1037241c4ce734d20f0117"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // Gemini API 설정
+        const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
+
         // 로딩 화면
         window.addEventListener('load', function() {
             setTimeout(function() {
@@ -482,15 +521,8 @@
             }, 1500);
         });
 
-        // ============ 투두 리스트 기능 ============
-        function getTodos() {
-            const stored = localStorage.getItem('todos');
-            return stored ? JSON.parse(stored) : [];
-        }
-
-        function saveTodos(todos) {
-            localStorage.setItem('todos', JSON.stringify(todos));
-        }
+        // ============ 투두 리스트 기능 (Firebase) ============
+        const todosRef = db.collection('todos');
 
         function addTodo() {
             const input = document.getElementById('todoInput');
@@ -501,57 +533,68 @@
                 return;
             }
 
-            const todos = getTodos();
-            todos.push({
-                id: Date.now(),
+            todosRef.add({
                 text: text,
                 completed: false,
-                createdAt: new Date().toISOString()
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            }).then(() => {
+                input.value = '';
+                console.log('투두 추가 완료!');
+            }).catch((error) => {
+                console.error('투두 추가 오류:', error);
+                alert('투두 추가에 실패했어요 😢');
             });
-            
-            saveTodos(todos);
-            input.value = '';
-            loadTodos();
         }
 
-        function toggleTodo(id) {
-            const todos = getTodos();
-            const todo = todos.find(t => t.id === id);
-            if (todo) {
-                todo.completed = !todo.completed;
-                saveTodos(todos);
-                loadTodos();
-            }
+        function toggleTodo(id, currentStatus) {
+            todosRef.doc(id).update({
+                completed: !currentStatus
+            }).catch((error) => {
+                console.error('투두 업데이트 오류:', error);
+            });
         }
 
         function deleteTodo(id) {
-            const todos = getTodos();
-            const filtered = todos.filter(t => t.id !== id);
-            saveTodos(filtered);
-            loadTodos();
+            if (confirm('정말 삭제할까요?')) {
+                todosRef.doc(id).delete().catch((error) => {
+                    console.error('투두 삭제 오류:', error);
+                });
+            }
         }
 
         function loadTodos() {
-            const todos = getTodos();
-            const container = document.getElementById('todoList');
-            
-            if (todos.length === 0) {
-                container.innerHTML = '<div class="todo-empty">아직 할 일이 없어요 📝</div>';
-                return;
-            }
+            // 실시간 리스너 설정
+            todosRef.orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
+                const container = document.getElementById('todoList');
+                
+                if (snapshot.empty) {
+                    container.innerHTML = '<div class="todo-empty">아직 할 일이 없어요 📝</div>';
+                    return;
+                }
 
-            container.innerHTML = todos.map(todo => `
-                <div class="todo-item ${todo.completed ? 'completed' : ''}">
-                    <input 
-                        type="checkbox" 
-                        class="todo-checkbox" 
-                        ${todo.completed ? 'checked' : ''} 
-                        onchange="toggleTodo(${todo.id})"
-                    />
-                    <span class="todo-text">${todo.text}</span>
-                    <button class="todo-delete" onclick="deleteTodo(${todo.id})">삭제</button>
-                </div>
-            `).join('');
+                const todos = [];
+                snapshot.forEach((doc) => {
+                    todos.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+
+                container.innerHTML = todos.map(todo => `
+                    <div class="todo-item ${todo.completed ? 'completed' : ''}">
+                        <input 
+                            type="checkbox" 
+                            class="todo-checkbox" 
+                            ${todo.completed ? 'checked' : ''} 
+                            onchange="toggleTodo('${todo.id}', ${todo.completed})"
+                        />
+                        <span class="todo-text">${todo.text}</span>
+                        <button class="todo-delete" onclick="deleteTodo('${todo.id}')">삭제</button>
+                    </div>
+                `).join('');
+            }, (error) => {
+                console.error('투두 로드 오류:', error);
+            });
         }
 
         // Enter 키로 투두 추가
@@ -568,29 +611,107 @@
 
         // ============ 기존 메시지 기능 ============
 
-        // 데이터 저장소 (localStorage 사용)
-        function getMessages(recipient) {
-            const stored = localStorage.getItem(`messages_${recipient}`);
-            return stored ? JSON.parse(stored) : [];
-        }
+        // ============ 메시지 기능 (Firebase) ============
+        const messagesRef = db.collection('messages');
 
-        function saveMessage(recipient, message) {
-            const messages = getMessages(recipient);
-            messages.unshift({
-                text: message,
-                date: new Date().toISOString(),
-                reactions: {}
-            });
-            localStorage.setItem(`messages_${recipient}`, JSON.stringify(messages));
-        }
-
-        function updateReaction(recipient, messageIndex, emoji) {
-            const messages = getMessages(recipient);
-            if (!messages[messageIndex].reactions[emoji]) {
-                messages[messageIndex].reactions[emoji] = 0;
+        function sendMessage(recipient) {
+            const textarea = document.getElementById(`${recipient}Message`);
+            const message = textarea.value.trim();
+            
+            if (!message) {
+                alert('메시지를 입력해주세요! 💭');
+                return;
             }
-            messages[messageIndex].reactions[emoji]++;
-            localStorage.setItem(`messages_${recipient}`, JSON.stringify(messages));
+
+            messagesRef.add({
+                recipient: recipient,
+                text: message,
+                date: firebase.firestore.FieldValue.serverTimestamp(),
+                reactions: {}
+            }).then(() => {
+                textarea.value = '';
+                alert(recipient === 'bird' ? '🐦 미새에게 편지가 전달되었어요!' : '🦤 도도에게 편지가 전달되었어요!');
+            }).catch((error) => {
+                console.error('메시지 전송 오류:', error);
+                alert('메시지 전송에 실패했어요 😢');
+            });
+        }
+
+        function loadMessages(recipient) {
+            const container = document.getElementById(`${recipient}Messages`);
+            
+            // 실시간 리스너 설정
+            messagesRef
+                .where('recipient', '==', recipient)
+                .orderBy('date', 'desc')
+                .onSnapshot((snapshot) => {
+                    if (snapshot.empty) {
+                        container.innerHTML = '<div class="no-messages">아직 편지가 없어요 📭</div>';
+                        return;
+                    }
+
+                    const messages = [];
+                    snapshot.forEach((doc) => {
+                        const data = doc.data();
+                        messages.push({
+                            id: doc.id,
+                            ...data,
+                            date: data.date ? data.date.toDate() : new Date()
+                        });
+                    });
+
+                    container.innerHTML = messages.map((msg) => {
+                        const date = msg.date;
+                        const dateStr = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+                        
+                        const reactionButtons = ['🐦', '🦤', '❤️', '😂', '🌟', '🍀'].map(emoji => {
+                            const count = msg.reactions[emoji] || 0;
+                            return `<button class="reaction-button ${count > 0 ? 'active' : ''}" onclick="addReaction('${msg.id}', '${emoji}')">
+                                ${emoji} ${count > 0 ? count : ''}
+                            </button>`;
+                        }).join('');
+
+                        return `
+                            <div class="message-card">
+                                <div class="message-date">
+                                    ${dateStr}
+                                    <button class="message-delete-btn" onclick="deleteMessage('${msg.id}')" title="메시지 삭제">🗑️</button>
+                                </div>
+                                <div class="message-text">${msg.text}</div>
+                                <div class="message-reactions">${reactionButtons}</div>
+                            </div>
+                        `;
+                    }).join('');
+                }, (error) => {
+                    console.error('메시지 로드 오류:', error);
+                });
+        }
+
+        function deleteMessage(messageId) {
+            if (confirm('이 메시지를 삭제할까요? 🗑️')) {
+                messagesRef.doc(messageId).delete()
+                    .then(() => {
+                        console.log('메시지 삭제 완료!');
+                    })
+                    .catch((error) => {
+                        console.error('메시지 삭제 오류:', error);
+                        alert('메시지 삭제에 실패했어요 😢');
+                    });
+            }
+        }
+
+        function addReaction(messageId, emoji) {
+            messagesRef.doc(messageId).get().then((doc) => {
+                if (doc.exists) {
+                    const data = doc.data();
+                    const reactions = data.reactions || {};
+                    reactions[emoji] = (reactions[emoji] || 0) + 1;
+                    
+                    return messagesRef.doc(messageId).update({ reactions: reactions });
+                }
+            }).catch((error) => {
+                console.error('반응 추가 오류:', error);
+            });
         }
 
         // 화면 전환
@@ -607,60 +728,7 @@
             document.getElementById('homeView').style.display = 'block';
         }
 
-        // 메시지 보내기
-        function sendMessage(recipient) {
-            const textarea = document.getElementById(`${recipient}Message`);
-            const message = textarea.value.trim();
-            
-            if (!message) {
-                alert('메시지를 입력해주세요! 💭');
-                return;
-            }
-
-            saveMessage(recipient, message);
-            textarea.value = '';
-            loadMessages(recipient);
-            
-            // 작은 피드백
-            alert(recipient === 'bird' ? '🐦 미새에게 편지가 전달되었어요!' : '🦤 도도에게 편지가 전달되었어요!');
-        }
-
-        // 메시지 로드
-        function loadMessages(recipient) {
-            const messages = getMessages(recipient);
-            const container = document.getElementById(`${recipient}Messages`);
-            
-            if (messages.length === 0) {
-                container.innerHTML = '<div class="no-messages">아직 편지가 없어요 📭</div>';
-                return;
-            }
-
-            container.innerHTML = messages.map((msg, index) => {
-                const date = new Date(msg.date);
-                const dateStr = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-                
-                const reactionButtons = ['🐦', '🦤', '❤️', '😂', '🌟', '🍀'].map(emoji => {
-                    const count = msg.reactions[emoji] || 0;
-                    return `<button class="reaction-button ${count > 0 ? 'active' : ''}" onclick="addReaction('${recipient}', ${index}, '${emoji}')">
-                        ${emoji} ${count > 0 ? count : ''}
-                    </button>`;
-                }).join('');
-
-                return `
-                    <div class="message-card">
-                        <div class="message-date">${dateStr}</div>
-                        <div class="message-text">${msg.text}</div>
-                        <div class="message-reactions">${reactionButtons}</div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // 반응 추가
-        function addReaction(recipient, messageIndex, emoji) {
-            updateReaction(recipient, messageIndex, emoji);
-            loadMessages(recipient);
-        }
+        // ============ Gemini API 랜덤 메시지 ============
 
         // 페르소나 정의
         const personas = {
@@ -685,7 +753,7 @@
                 traits: '영어 교육 콘텐츠 회사의 CEO, 돈을 좋아하고 부자가 되고 싶어함, 미새를 우파라고 놀림',
                 relationship: '미새의 남자친구',
                 startDate: '2024년 6월 13일',
-                jargon: ['우파', '부자 아빠', '가난한 아빠', '파닥파닥', '푸드덕푸드덕', '라이다 on!'],
+                jargon: ['우파', '부자', '파닥파닥', '푸드덕푸드덕', '라이다 on!'],
                 writingStyle: '장난스럽지만 다정한 느낌, 리더십있고 든든한 말투, 유머와 애정이 섞인 메시지'
             }
         };
@@ -736,7 +804,7 @@ ${recipientPersona.name}에게 보낼 짧고 다정한 편지 메시지를 1-3�
             const textarea = document.getElementById(`${recipient}Message`);
             
             // API 키 확인
-            if (GEMINI_API_KEY === 'AIzaSyCmSdDLxkkF5tllaRx_rZ81jSqeY4wOwLY') {
+            if (GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
                 alert('⚠️ Gemini API 키를 설정해주세요!\n코드에서 GEMINI_API_KEY를 찾아 실제 API 키로 변경하세요.');
                 return;
             }
@@ -821,7 +889,7 @@ ${recipientPersona.name}에게 보낼 짧고 다정한 편지 메시지를 1-3�
                 // 폴백: 샘플 메시지
                 const sampleMessages = recipient === 'bird' ? [
                     '미새야, 오늘도 파닥파닥! 💙 책 읽다가 생각났어. 우리 우파 미새 보고싶다~ 😂',
-                    '라이다 on! 미새에게 책 도서관 하나 사줄게. 푸드덕! 🦤',
+                    '라이다 on! 미새에게 도서관 하나 사줄게. 푸드덕! 🦤',
                     '오늘 하루도 고생했어, 미새. 당신이 있어 매일이 특별해요 ❤️'
                 ] : [
                     '도도야, 푸드덕푸드덕~ 오늘도 CEO님 수고 많으셨어요! 💙 항상 응원해 🐦',
