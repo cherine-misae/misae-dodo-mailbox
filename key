@@ -506,24 +506,35 @@
             appId: "1:93143777718:web:1037241c4ce734d20f0117"
         };
 
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
+        // Firebase 앱 초기화
+        let db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            console.log('Firebase 초기화 성공!');
+        } catch (error) {
+            console.error('Firebase 초기화 오류:', error);
+            alert('Firebase 연결에 문제가 있어요. localStorage 모드로 작동합니다.');
+        }
 
         // Gemini API 설정
-        const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
+        const GEMINI_API_KEY = 'AIzaSyCmSdDLxkkF5tllaRx_rZ81jSqeY4wOwLY';
 
         // 로딩 화면
         window.addEventListener('load', function() {
-            setTimeout(function() {
-                document.getElementById('loadingScreen').classList.add('hidden');
-                document.getElementById('mainContainer').classList.add('visible');
-                loadTodos(); // 투두 리스트 로드
-            }, 1500);
+            // 로딩 화면을 즉시 제거하고 메인 화면 표시
+            document.getElementById('loadingScreen').classList.add('hidden');
+            document.getElementById('mainContainer').classList.add('visible');
+            
+            // 투두 리스트 로드
+            if (db) {
+                loadTodos();
+            } else {
+                document.getElementById('todoList').innerHTML = '<div class="todo-empty">Firebase 연결 필요 📝</div>';
+            }
         });
 
         // ============ 투두 리스트 기능 (Firebase) ============
-        const todosRef = db.collection('todos');
-
         function addTodo() {
             const input = document.getElementById('todoInput');
             const text = input.value.trim();
@@ -533,6 +544,12 @@
                 return;
             }
 
+            if (!db) {
+                alert('Firebase 연결이 필요해요! 😢');
+                return;
+            }
+
+            const todosRef = db.collection('todos');
             todosRef.add({
                 text: text,
                 completed: false,
@@ -547,6 +564,8 @@
         }
 
         function toggleTodo(id, currentStatus) {
+            if (!db) return;
+            const todosRef = db.collection('todos');
             todosRef.doc(id).update({
                 completed: !currentStatus
             }).catch((error) => {
@@ -555,7 +574,9 @@
         }
 
         function deleteTodo(id) {
+            if (!db) return;
             if (confirm('정말 삭제할까요?')) {
+                const todosRef = db.collection('todos');
                 todosRef.doc(id).delete().catch((error) => {
                     console.error('투두 삭제 오류:', error);
                 });
@@ -563,6 +584,12 @@
         }
 
         function loadTodos() {
+            if (!db) {
+                document.getElementById('todoList').innerHTML = '<div class="todo-empty">Firebase 연결 필요 📝</div>';
+                return;
+            }
+
+            const todosRef = db.collection('todos');
             // 실시간 리스너 설정
             todosRef.orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
                 const container = document.getElementById('todoList');
@@ -612,8 +639,6 @@
         // ============ 기존 메시지 기능 ============
 
         // ============ 메시지 기능 (Firebase) ============
-        const messagesRef = db.collection('messages');
-
         function sendMessage(recipient) {
             const textarea = document.getElementById(`${recipient}Message`);
             const message = textarea.value.trim();
@@ -623,6 +648,12 @@
                 return;
             }
 
+            if (!db) {
+                alert('Firebase 연결이 필요해요! 😢');
+                return;
+            }
+
+            const messagesRef = db.collection('messages');
             messagesRef.add({
                 recipient: recipient,
                 text: message,
@@ -640,6 +671,12 @@
         function loadMessages(recipient) {
             const container = document.getElementById(`${recipient}Messages`);
             
+            if (!db) {
+                container.innerHTML = '<div class="no-messages">Firebase 연결 필요 📭</div>';
+                return;
+            }
+
+            const messagesRef = db.collection('messages');
             // 실시간 리스너 설정
             messagesRef
                 .where('recipient', '==', recipient)
@@ -688,7 +725,9 @@
         }
 
         function deleteMessage(messageId) {
+            if (!db) return;
             if (confirm('이 메시지를 삭제할까요? 🗑️')) {
+                const messagesRef = db.collection('messages');
                 messagesRef.doc(messageId).delete()
                     .then(() => {
                         console.log('메시지 삭제 완료!');
@@ -701,6 +740,8 @@
         }
 
         function addReaction(messageId, emoji) {
+            if (!db) return;
+            const messagesRef = db.collection('messages');
             messagesRef.doc(messageId).get().then((doc) => {
                 if (doc.exists) {
                     const data = doc.data();
@@ -753,7 +794,7 @@
                 traits: '영어 교육 콘텐츠 회사의 CEO, 돈을 좋아하고 부자가 되고 싶어함, 미새를 우파라고 놀림',
                 relationship: '미새의 남자친구',
                 startDate: '2024년 6월 13일',
-                jargon: ['우파', '부자', '파닥파닥', '푸드덕푸드덕', '라이다 on!'],
+                jargon: ['우파', '버핏 형님', '파닥파닥', '푸드덕푸드덕', '라이다 on!'],
                 writingStyle: '장난스럽지만 다정한 느낌, 리더십있고 든든한 말투, 유머와 애정이 섞인 메시지'
             }
         };
@@ -794,9 +835,6 @@ ${recipientPersona.name}에게 보낼 짧고 다정한 편지 메시지를 1-3�
 
 메시지만 출력하세요. 다른 설명은 필요 없습니다.`;
         }
-
-        // Gemini API 설정
-        const GEMINI_API_KEY = 'AIzaSyCmSdDLxkkF5tllaRx_rZ81jSqeY4wOwLY'; // 여기에 API 키를 넣어주세요!
 
         // 랜덤 메시지 생성
         async function generateRandomMessage(recipient) {
